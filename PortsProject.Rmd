@@ -1,0 +1,438 @@
+---
+title: "Ports R Project"
+output: html_document
+date: "2024-05-22"
+---
+<h1 style="color:blue; background-color:white; padding:15px;">Discovering the Data</h1>
+```{r Libraries, echo=FALSE, message=FALSE}
+library(readxl)
+library(tidyverse)
+library(stargazer)
+library(ggplot2)
+library(MASS)
+library(dplyr)
+library(tidyselect)
+library(knitr)
+library(ggrepel)
+library(forcats)
+library(scales)
+library(plotly)
+library(htmlwidgets)
+library(gridExtra)
+```
+### Downloading the datasets
+```{r}
+ports_data <- read_excel("~/Downloads/ports.xlsx")
+geography_data <- read_excel("~/Downloads/geographical_location.xlsx")
+```
+Using read_excel function we upload the excel data sets from UN Global Platform and IMF PortWatch.
+
+### Inspecting the Data that we have
+```{r}
+head(ports_data, 5) # head function provides the first 5 rows of the ports data set
+summary(ports_data) # summary provides Length, Class, Mode for each variable in the ports data set
+head(geography_data, 5) # head function provides the first 5 rows of the geography data set for a quick overlook of variables
+summary(geography_data) # summary provides Length, Class, Mode for each variable in the geography data set
+```
+### How many variables does each data set have? 
+```{r}
+ncol(ports_data) # the ports data set consists of 10 variables, each representing different attributes collected within the set.
+ncol(geography_data) # the geography set has 6 variables 
+```
+### How many observations per variable do we have?
+```{r}
+nrow(ports_data) # as we can see, there are 8268 observations in each variable in the ports data set
+nrow(geography_data) # and 1378 observations in the geography set
+```
+### What do the variable names mean? 
+> Variables represent the data values that we have in the data set. They also have descriptive names, so that it'll be easier to use them for the analysis.
+
+### What variable types are we dealing with?
+```{r}
+str(ports_data)
+str(geography_data)
+```
+> So, as we can see, the geography data set includes mostly ***character*** and ***numeric*** variables. Meanwhile, the ports set has also both ***character*** and ***numeric*** variables, with the majority being ***character*** variables.
+
+### Are there any mistakes with the variable types that might make future work difficult if not fixed?
+> Yes, there some mistakes, as variables *"share_country_maritime_import"* and the same varible with *export* stored as character strings but represent numeric data. Moreover, the variable *"LOCODE"* in the ports data set contains NA that should be deleted. 
+
+> This misclassification can make our future data analysis and visualization process difficult, as numerical operations and statistics can't be done directly on chr data. So, we should convert first these variables for future work.
+
+### Is the dataset in long or wide format? Do you need to change that later?
+> Both datasets are in long format. It'll be easier to visualize and analyse data further in the wide format.
+
+## Cleaning Ports Variables
+```{r Cleaning and changing ports data}
+ports_data <- ports_data %>%
+  mutate(share_country_maritime_import = as.numeric(gsub("'", ".", share_country_maritime_import)),
+         share_country_maritime_export = as.numeric(share_country_maritime_export)) # Export column is ready from the beginning to be converted into numeric
+str(ports_data) # checking the numeric formats by two variables
+# In the ports data set we need to convert two columns with Import and Export. In share_country_maritime_import we need to change from "'" to "." and then convert to numeric format.
+```
+## Cleaning Geographical Location Variables
+```{r cleaning and changing geographical data}
+geography_data <- geography_data %>%
+  mutate(latitude = as.numeric(latitude), # converting latitude and longitude to num type
+lon = as.numeric(lon)) %>%
+rename(lat = latitude, long = lon) # using rename function from dplyr I rename two variables
+str(geography_data) # checking the new formats and names
+```
+# Discovering Ports
+Sorting and Rearranging the data
+```{r Selecting Data}
+selected_ports <- ports_data %>%
+  dplyr::select("fullname", "vessel_type", "vessel_count") # because of conflicting packages and commands, having the same name, I specify the dplyr select package 
+```
+
+
+```{r Filtering data}
+ports_sum <- selected_ports %>%
+  filter(vessel_type == "total") %>%
+  group_by(fullname) %>%
+  summarise(vessels_sum = sum(vessel_count, na.rm = TRUE)) %>%
+  arrange(desc(vessels_sum))
+
+top15_ports <- ports_sum %>%
+  slice_max(order_by = vessels_sum, n=15)
+```
+Plotting the results:
+```{r fig.width=18, fig.height=8}
+ggplot(top15_ports, aes(x = reorder(fullname, vessels_sum),y=vessels_sum)) +
+  geom_bar(stat = "identity", fill = "darkblue") +
+  coord_flip() +
+  geom_text(aes(label=vessels_sum), hjust = -0.2, color="black")+
+  labs(title= "Top 15 Ports by Number of Total Ships Handled", x = " ", y = " ", caption = "Sources: UN Global Platform; IMF PortWatch (portwatch.imf.org)") +
+  theme_minimal() +
+  theme(
+  plot.title = element_text(face = "bold", size = 20),
+  plot.caption = element_text(size = 10, hjust = 0, face = "italic"), 
+  axis.text.x = element_blank(), # remove x-axis text
+  axis.ticks.x = element_blank(), # remove x-axis ticks
+  axis.title.x = element_blank(), # remove x-axis title
+  panel.grid.major = element_blank(), # removing grid background lines
+  panel.grid.minor = element_blank(),
+  plot.margin = unit(c(1, 1, 1, 1), "cm")) # formatting the size of graph
+```
+We can observe problems with the usage of `vessel_type` and `vessel_count` variables, because the same port can appear multiple times. Moreover, the numbers are not that realistic and do not make sense.
+
+```{r Checking Unique Vessels}
+vessel_type_unique <- unique(ports_data$vessel_type)
+vessel_type_count <- length(vessel_type_unique)
+
+vessel_type_unique %>% kable()
+vessel_type_count
+```
+```{r Changing from Long to Wide Format}
+# Reshaping the data from long to wide format
+ports_data_wide <- ports_data %>% # using pivot_wider() to reshape the data set
+  pivot_wider(names_from = vessel_type, values_from = vessel_count)
+
+# Displaying the reshaped data (top 10 observations)
+head(ports_data_wide, 10) %>% kable()
+```
+```{r Sanity Check}
+original_observations <- nrow(ports_data) # we need to check the reduction in the number of observations in the data set after reshaping to ensure correctness
+reshaped_observations <- nrow(ports_data_wide)
+
+original_observations
+reshaped_observations
+```
+> The unique vessel types should remain the same, ensuring that the reshaping process did not alter the categories.
+
+> The reshaped data is in a wide format now, where each port has a single row with separate columns for different vessel types.This allows for easier comparison and analysis of different vessel types for each port. Each port's row now contains all relevant vessel counts, making it straightforward to see the distribution and focus of maritime activities. The inclusion of industry and maritime share information provides context for the economic activities related to each port
+
+## Merging Data
+```{r Splitting the fullname variable into portname and country}
+ports_data_wide <- ports_data_wide %>%
+  mutate(portname_country = fullname) %>%  # duplicating column to preserve fullname
+
+  separate(portname_country, into = c("portname", "country"), sep = ", ", extra = "merge", fill = "right")
+
+# Display the updated dataframe with the split columns
+head(ports_data_wide)
+```
+> Now, as we have split columns, we need to inspect and clean potential issues with US ports: Some ports in the US include states, we need to handle these separately.
+
+```{r Extracting unique country names}
+unique_countries <- unique(ports_data_wide$country) # using unique function to check all unique names of countries
+unique_countries
+
+# US might have states and we can fix these manually
+ports_data_wide <- ports_data_wide %>%
+  mutate(country = ifelse(grepl("USA", country), "USA", country)) # using mutate, any entry containing the substring "USA" is replaced with just "USA", ensuring a uniform representation of the United States. 
+
+# Display cleaned data
+head(ports_data_wide)
+
+```
+```{r Merging data sets}
+# Merge the ports data set with geography data
+merged_data <- ports_data_wide %>%
+  left_join(geography_data, by = c("portname", "country")) # using left join to keep all the rows from the ports data set and to add columns from geography data set that match based on the specified portname and country variables.
+
+knitr::kable(head(merged_data, 10)) # the merged data table overview
+
+```
+
+## Domestically Significant Ports
+
+```{r Aggregating import shares by ports}
+port_import <- merged_data %>% 
+  group_by(country, portid, fullname) %>% # group data by country, port ID, and fullname to calculate total import share for each port
+  summarise(total_import_share = sum(share_country_maritime_import, na.rm = TRUE)) %>%
+  ungroup() # we need to ungroup the data to remove grouping structure before further operations
+
+port_import <- port_import %>%
+  group_by(country) %>% # grouping data by country to calculate cumulative shares within each country
+  arrange(country, desc(total_import_share)) %>%
+  mutate(cumulative_share = cumsum(total_import_share), # cumsum computes the cumulative sum of a numeric vector
+    cumulative_percentage = cumulative_share / sum(total_import_share) * 100, # this code line converts the cumulative import share into a percentage of the total import share
+    dummy = ifelse(cumulative_percentage <= 80, 1, 0)
+  ) %>% # # we create a dummy variable in a way that if the cumulative percentage of total import share is less than or equal to 80%, we set it to 1 (significant port), otherwise set to 0 (non-significant port). ifelse vectorizes conditional operation to create a new variable based on a condition
+  ungroup()
+
+head(port_import)
+```
+```{r Counting the number of ports}
+num_significant_ports <- nrow(port_import[port_import$dummy == 1, ])
+ # this sums up the number of rows where the dummy variable is equal to 1 (significant)
+num_not_significant_ports <- nrow(port_import[port_import$dummy == 0, ]) # here when it is not significant
+
+# Presenting in convenient way
+cat("Number of domestically significant ports:", num_significant_ports, "\n")
+cat("Number of non-significant ports:", num_not_significant_ports, "\n")
+```
+
+```{r Merging data}
+# Merging two data sets to have one large data set
+merged_data <- merged_data %>%
+  left_join(port_import %>% dplyr::select("portid", "dummy"), by = "portid")
+
+head(merged_data)
+
+```
+
+## Top Industries
+> Now that we have one large data set with all possible information, as well as a distinction between domestically significant ports and not domestically significant, we would like to find out more what the difference between these ports are.
+
+```{r Counting the number of unique values in each industry variable}
+unique_industry_top1 <- length(unique(merged_data$industry_top1)) # length counts the number of unique values extracted in each code line. The same for industry 2 and 3
+unique_industry_top2 <- length(unique(merged_data$industry_top2))
+unique_industry_top3 <- length(unique(merged_data$industry_top3))
+
+# Presenting in convenient way
+cat("Number of unique values in industry_top1:", unique_industry_top1, "\n")
+cat("Number of unique values in industry_top2:", unique_industry_top2, "\n")
+cat("Number of unique values in industry_top3:", unique_industry_top3, "\n")
+```
+The next task is to calculate missing values. We start within these three industry values.
+```{r Missing values}
+total_missing_1 <- sum(is.na(merged_data$industry_top1)) # using is.na to find missing values in each industry variable
+total_missing_2 <- sum(is.na(merged_data$industry_top2))
+total_missing_3 <- sum(is.na(merged_data$industry_top3))
+
+# Printing out number of missing values in a better formatting
+cat("Total missing values in industry_1:", total_missing_1, "\n")
+cat("Total missing values in industry_2:", total_missing_2, "\n")
+cat("Total missing values in industry_3:", total_missing_3, "\n")
+
+```
+> As we can see, there are no missing values among all three variables. This means that we can further use this variables for analysis.
+
+```{r Missing values whole data set}
+missing_total <- sum(is.na(merged_data))
+cat("Total missing values in total data set:", missing_total, "\n")
+```
+Here we see 170 missing values in the whole data set. However, all these missing values are from LOCODE variable, where there are only NA. This variable is not signifact for further analysis.
+
+```{r Missing values subsets ports}
+missing_sign_ports <- sum(is.na(num_not_significant_ports))
+missing_not_sign_ports <- sum(is.na(num_not_significant_ports))
+
+cat("Total missing values in domestic significant ports:", missing_sign_ports, "\n")
+cat("Total missing values in not domestically significant ports:", missing_not_sign_ports, "\n")
+```
+> Finally, we observe 0 missing values in both domestically significant and not significant ports variables. This confirms that we can further use the data avalaible in these two variables.
+
+## Top Industries
+```{r Choosing significant ports from the whole data set}
+domestically_sign_ports <- merged_data %>%
+  filter(dummy == 1) # dummy 1 means significant port
+
+domestically_sign_ports <- domestically_sign_ports %>%
+# Convert factor to character to ensure NAs are handled correctly
+mutate(industry_top3 = if_else(industry_top3 == "NA", NA_character_, industry_top3)) %>% # before I checked NA in the whole data set and R didn't see NA in the data set, as missing values. That is why mutate function is needed before drop_na to remove 6 NAs from industry_top3
+drop_na(industry_top3)
+
+```
+
+```{r Calculating shares for each industry}
+# Creating subset with only industry top 3 variable and removing NA values
+industrytop3 <- domestically_sign_ports %>%
+  dplyr::select(industry_top3)
+
+# Calculating the total count of the industry_top3 column
+industry_count <- table(industrytop3$industry_top3)
+total_count <- sum(industry_count)
+
+# Creating a data frame for all industries with their counts and shares
+industry_df <- as.data.frame(industry_count)
+colnames(industry_df) <- c("Industry", "Count")
+
+# Calculating shares
+industry_df$Share <- (industry_df$Count / total_count) * 100
+
+# Checking the data frame
+print(industry_df)
+
+```
+
+```{r fig.width=10, fig.height=7}
+# Defining a blue color palette
+blue_palette <- c("#bdd7e7", "#a6cae2", "#8fbddd", "#79b0d8", "#62a3d3", "#4b96ce", "#3489c9", "#1d7cc4", "#0760b2", "#084d91")
+ # setting the blue color palette
+
+industry_df <- industry_df %>% # here I calculate the position for labels in a pie chart. The cumulative sum in reverse order helps in placing the labels correctly, ensuring they are centered within each segment
+  mutate(csum = rev(cumsum(rev(Share))), 
+         pos = Share / 2 + lead(csum, 1),
+         pos = if_else(is.na(pos), Share / 2, pos)) # here calculating pos in case of NA
+
+# Pie chart plotting
+ggplot(industry_df, aes(x="", y=Share, fill=Industry)) +
+  geom_bar(stat="identity", width=1) +  # geom_bar with width=1 to create pie segments
+  coord_polar("y", start = 0) +  # using coord_polar to turn the bar chart into a pie chart
+  theme_void() +  # removing background and axes
+  labs(title="Domestically Significant Ports Shares") +  # title
+  theme(plot.title = element_text(hjust = 1.2, vjust = 0.9, size= 15, face="bold"),  # adjusting title to the right and higher position 
+        legend.position="right") +  # the legend on the right
+   geom_label_repel(data = industry_df, # adjusting percentage labels, so that they are outside the pie chart with the corresponding share color and line directed to the share
+                   aes(y = pos, label = paste0(round(Share, 2), "%")), # adjusting the percentage (2 numbers after coma)
+                   size = 3, nudge_x = 1, show.legend = FALSE) +
+  scale_fill_manual(values=blue_palette)  # using the defined blue color palette
+```
+
+> From this pie chart we can see that the largest share from domestifically significant ports is ***Agriculture*** with 38.21%. The next two largest are ***Electrical & Machinery*** and ***Food & Beverages***, 23.31% and 19.78% respectively. The darkest blue shade shows the smallest industry share from all significant ports. In contrary, Agriculture with the largest share is the lightest shade of blue among all. 
+
+## Mapping It Out Task
+
+```{r}
+unique_countries <- unique(merged_data$country)#
+
+colors <- grDevices::colorRampPalette(c("#FFB6C1", "#AEC6CF", "#77DD77", "#FDFD96", "#CDB4DB"))(length(unique_countries))
+country_colors <- setNames(colors, unique_countries)
+
+merged_data$color <- country_colors[merged_data$country]
+
+```
+
+```{r mapping all ports}
+fig <- merged_data %>%
+  plot_ly(
+    lat = ~lat,
+    lon = ~long,
+    marker = list(color = ~color, size = 10),
+    type = 'scattermapbox',
+    mode = 'markers',  # the mode is set to 'markers'
+    customdata = ~portid,  # using customdata to store port IDs
+    hovertext = ~paste( # below I specify what I want to see in the small window on the map near each port
+      'Country:', country, '<br>',
+      'Import Share:', share_country_maritime_import,'<br>',
+      'Export Share:', share_country_maritime_export,'<br>'
+    )
+  )
+
+fig <- fig %>% # here using plotly.com I adjust the map and its settings
+  layout(
+    mapbox = list(
+      style = 'open-street-map',
+      zoom = 1.5,  # Adjust zoom level as needed
+      center = list(lon = mean(merged_data$long), lat = mean(merged_data$lat))
+    ),
+    title = "Global Ports Map",
+       showlegend = FALSE,
+    annotations = list( # adding caption for the sources
+      list(
+        x = 0.5,
+        y = 0,
+        xref = 'paper',
+        yref = 'paper',
+        text = "Sources: UN Global Platform; IMF PortWatch (portwatch.imf.org)",
+        showarrow = FALSE,
+        font = list(size = 12)      
+        )
+    ),
+    margin = list(b = 10)  # adjusting the bottom margin to make space for the manual legend
+  )
+
+# Saving the plot as an HTML file
+saveWidget(fig, "fig.html", selfcontained = FALSE, libdir = "lib")
+```
+
+
+> The final results and interactive plotting of this world map you can see in a separate html file. Each color means unique country and its ports. I tried to add legend with color and appropriate industry but scattermapbox does not support legends for color directly as other plot types do.
+
+## Surprise Us Task
+
+> I have an interest in Asian countries, specifically in Japan. It's interesting for me to investigate more its ports. That is why I will start first with creating a subset only with Japanese ports and relevant to it data.
+
+```{r subset}
+japan_ports <- merged_data %>%
+  filter(country == "Japan") %>%
+  dplyr :: select(portid, fullname, share_country_maritime_import, share_country_maritime_export, total)
+
+print(japan_ports)
+```
+
+
+```{r box plots}
+# Box plot for import
+plot1 <- ggplot(japan_ports, aes(y = share_country_maritime_import)) +
+  geom_boxplot(fill = "salmon", alpha = 0.5) +
+  labs(title = "Import Shares of Japanese Ports", y = "Import Share, %", x = "") +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank())
+
+# Box plot for maritime exports
+plot2 <- ggplot(japan_ports, aes(y = share_country_maritime_export)) +
+  geom_boxplot(fill = "lightblue", alpha = 0.5) +
+  labs(title = "Export Shares of Japanese Ports", y = "Export Share, %", x = "") +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank())
+
+# Arranging the plots side by side
+grid.arrange(plot1, plot2, ncol = 2)
+```
+
+> The export activity across Japanese ports is considerably less concentrated than import activity, with generally lower values across the board. This could suggest that Japan's ports are more focused on import activities or that the export transactions are more evenly distributed among more ports. 
+
+> ***The import shares*** for Japanese ports predominantly range between 0% to approximately 2%. The median value is close to 0.5%, suggesting that half of the ports have import shares at or below this percentage. IQR s fairly compact, indicating that most of the import shares are concentrated within a small range.Most ports handle a modest portion of imports, with a few exceptions significantly exceeding the norm. This could point to a few ports being major hubs for imports into Japan.
+
+> ***The export shares*** are markedly lower than import shares, with most values clustering closer to 0%. The median export share is near 0.015%, much lower than the median import share. Ports with high import shares might be strategically important, equipped with better infrastructure or located advantageously. The overall lower export shares could reflect either a diversified exit strategy for goods or a lesser focus on exporting activities through maritime routes.
+
+Limitation: the percentage of shares is calculated in relationship to all other countries and its ports. That is why, it is hard to see real numbers and Japanese ports shares but I can compare for one example export share of Japan and China.
+
+```{r}
+# Filter data for only China and Japan
+china_japan_exports <- merged_data %>%
+  filter(country %in% c("China", "Japan")) %>% # filtering only for two countries
+  group_by(country) %>%
+  summarize(average_export_share = mean(share_country_maritime_export, na.rm = TRUE)) # finding average share with mean function
+
+# Bar chart comparing export shares
+ggplot(china_japan_exports, aes(x = country, y = average_export_share, fill = country)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.6) +
+  labs(title = "Comparison of Export Shares: China vs Japan", 
+       x = "Country", 
+       y = "Average Export Share") +
+  scale_fill_manual(values = c("China" = "lightblue", "Japan" = "salmon")) +  
+  theme_minimal()
+```
+
+> Here we can see that in comparison to China, Japan has smaller export share.
+
+
+
+# Thank you for scrolling & looking till the end! 😊
+
+![:)](/Users/katerynazamai/Downloads/thank you meme.jpeg)
